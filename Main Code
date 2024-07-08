@@ -1,1 +1,742 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Apr 15 19:04:05 2024
+This is Yu-san, I make it for doing Bias Correction of Rainfall (Monthly data)
+The method is Trend-Preserving Quantile Mapping (TPQM).
+
+
+
+@author: Yuangga Rizky Illahi
+"""
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import math
+import scipy.stats as stats
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+########################################################################################################################
+########################################################################################################################
+#😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡
+# Langkah 1: Memuat data dari CSV
+
+
+file_path = r"C:\Users\Yuangga\.spyder-py3\Bias Correction\Eq1\1.bulanan.csv"
+data_bulanan = pd.read_csv("1.bulanan.csv")
+
+# Menampilkan informasi tentang tipe data setiap kolom
+dataframe = pd.read_csv(file_path)
+print(dataframe.info())
+
+# Tampilkan hasil dalam bentuk print
+print("Data Bulanan:")
+print(data_bulanan)
+
+
+# Mengonversi kolom 'Bulan_Tahun' menjadi tipe data datetime
+data_bulanan['Bulan_Tahun'] = pd.to_datetime(data_bulanan['Bulan_Tahun'])
+
+
+########################################################################################################################
+########################################################################################################################
+#😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡
+# Langkah 4: Evaluasi Metrik dan Kesimpulan
+
+
+
+# Fungsi KGE (Kling-Gupta Efficiency)
+def kge_score(ground_truth, simulation):
+    kge_val = 1 - (math.sqrt((np.square(np.corrcoef(ground_truth, simulation)[0,1] - 1)**2) + 
+                              (np.square(np.std(simulation, ddof=1) / np.std(ground_truth, ddof=1) - 1)**2) + 
+                              (np.square(np.mean(simulation) / np.mean(ground_truth) - 1)**2)))
+    return kge_val
+
+# Menyaring data bulanan yang tidak mengandung nilai NaN dan menghilangkan kolom 'Bulan_Tahun'
+data_bulanan_clean = data_bulanan.dropna().drop(columns=['Bulan_Tahun'])
+
+# Menyaring data bulanan yang tidak mengandung nilai negatif
+data_bulanan_clean = data_bulanan_clean[data_bulanan_clean >= 0].dropna()
+
+# Metrik
+evaluation_metrics = {}
+
+# Korelasi
+correlation = data_bulanan_clean.corrwith(data_bulanan_clean.iloc[:, 0])
+evaluation_metrics['Correlation'] = pd.DataFrame(correlation, columns=['Correlation'])
+print("Correlation (Before Correction):")
+print(evaluation_metrics['Correlation'])
+
+# RMSE (Root Mean Square Error)
+rmse = {}
+for column in data_bulanan_clean.columns:
+    if np.issubdtype(data_bulanan_clean[column].dtype, np.number):
+        rmse[column] = math.sqrt(mean_squared_error(data_bulanan_clean.iloc[:, 0], data_bulanan_clean[column]))
+evaluation_metrics['RMSE'] = pd.DataFrame(rmse, index=['RMSE'])
+
+# RSR (Ratio of the Root Mean Square Error to the Standard Deviation)
+rsr = {}
+for column in data_bulanan_clean.columns:
+    if np.issubdtype(data_bulanan_clean[column].dtype, np.number):
+        rmse_value = math.sqrt(mean_squared_error(data_bulanan_clean.iloc[:, 0], data_bulanan_clean[column]))
+        rsr_value = rmse_value / data_bulanan_clean.iloc[:, 0].std()
+        rsr[column] = rsr_value
+evaluation_metrics['RSR'] = pd.DataFrame(rsr, index=['RSR'])
+
+# NSE (Nash-Sutcliffe Efficiency)
+nse = {}
+for column in data_bulanan_clean.columns:
+    if np.issubdtype(data_bulanan_clean[column].dtype, np.number):
+        valid_values = data_bulanan_clean[column][(data_bulanan_clean[column] >= 0) & (~np.isnan(data_bulanan_clean[column]))]
+        if len(valid_values) > 0:
+            if np.sum((data_bulanan_clean.iloc[:, 0] - np.mean(data_bulanan_clean.iloc[:, 0]))**2) != 0:
+                nse_value = 1 - (np.sum((valid_values - data_bulanan_clean.iloc[:, 0])**2) / np.sum((data_bulanan_clean.iloc[:, 0] - np.mean(data_bulanan_clean.iloc[:, 0]))**2))
+                nse[column] = nse_value
+            else:
+                nse[column] = np.nan
+        else:
+            nse[column] = np.nan
+evaluation_metrics['NSE'] = pd.DataFrame(nse, index=['NSE'])
+
+# PBIAS (Percent Bias)
+pbias = {}
+for column in data_bulanan_clean.columns:
+    if np.issubdtype(data_bulanan_clean[column].dtype, np.number):
+        pbias_value = ((data_bulanan_clean[column] - data_bulanan_clean.iloc[:, 0]).sum() / 
+                       data_bulanan_clean.iloc[:, 0].sum()) * 100
+        pbias[column] = pbias_value
+evaluation_metrics['PBIAS'] = pd.DataFrame(pbias, index=['PBIAS'])
+
+# R^2 (Coefficient of Determination)
+r2 = {}
+for column in data_bulanan_clean.columns:
+    if np.issubdtype(data_bulanan_clean[column].dtype, np.number):
+        r2_value = r2_score(data_bulanan_clean.iloc[:, 0], data_bulanan_clean[column])
+        r2[column] = r2_value
+evaluation_metrics['R^2'] = pd.DataFrame(r2, index=['R^2'])
+
+# KGE (Kling-Gupta Efficiency)
+kge = {}
+for column in data_bulanan_clean.columns:
+    if np.issubdtype(data_bulanan_clean[column].dtype, np.number):
+        kge_value = kge_score(data_bulanan_clean.iloc[:, 0], data_bulanan_clean[column])
+        kge[column] = kge_value
+evaluation_metrics['KGE'] = pd.DataFrame(kge, index=['KGE'])
+
+# MAE (Mean Absolute Error)
+mae = {}
+for column in data_bulanan_clean.columns:
+    if np.issubdtype(data_bulanan_clean[column].dtype, np.number):
+        mae_value = mean_absolute_error(data_bulanan_clean.iloc[:, 0], data_bulanan_clean[column])
+        mae[column] = mae_value
+evaluation_metrics['MAE'] = pd.DataFrame(mae, index=['MAE'])
+
+# Kesimpulan
+conclusion = {}
+for metric, values in evaluation_metrics.items():
+    conclusion[metric] = {}
+    for column, value in values.items():
+        if metric in ['RSR', 'NSE', 'PBIAS', 'R^2', 'KGE', 'MAE']:
+            if metric == 'RSR':
+                conclusion[metric][column] = value.apply(lambda x: ('Very Good', x) if 0 <= x <= 0.5 else (('Good', x) if 0.5 < x <= 0.6 else (('Satisfactory', x) if 0.6 < x <= 0.7 else ('Unsatisfactory', x))))
+            elif metric == 'NSE':
+                conclusion[metric][column] = value.apply(lambda x: ('Very Good', x) if 0.75 < x <= 1 else (('Good', x) if 0.65 < x <= 0.75 else (('Satisfactory', x) if 0.5 < x <= 0.65 else ('Unsatisfactory', x))))
+            elif metric == 'PBIAS':
+                conclusion[metric][column] = value.apply(lambda x: ('Very Good', x) if x < 10 else (('Good', x) if 10 <= x <= 15 else (('Satisfactory', x) if 15 <= x <= 25 else ('Unsatisfactory', x))))
+            elif metric == 'R^2':
+                conclusion[metric][column] = value.apply(lambda x: ('Very Good', x) if x > 0.8 else (('Good', x) if 0.7 <= x <= 0.8 else (('Satisfactory', x) if 0.5 <= x <= 0.7 else ('Unsatisfactory', x))))
+            elif metric == 'KGE':
+                conclusion[metric][column] = value.apply(lambda x: ('Very Good', x) if x > 0.8 else (('Good', x) if 0.6 <= x <= 0.8 else (('Satisfactory', x) if 0.4 <= x <= 0.6 else ('Unsatisfactory', x))))
+            elif metric == 'MAE':
+                conclusion[metric][column] = value.apply(lambda x: ('Very Good', x) if x < 10 else (('Good', x) if 10 <= x <= 20 else (('Satisfactory', x) if 20 <= x <= 30 else ('Unsatisfactory', x))))
+        else:
+            conclusion[metric][column] = value
+
+# Mendapatkan path folder script phy
+script_folder = os.path.dirname(os.path.abspath(__file__))
+
+# Menyimpan metrik evaluasi dalam file CSV
+evaluation_metrics_path = os.path.join(script_folder, "4.Evaluasi_metrik.csv")
+with open(evaluation_metrics_path, 'w') as file:
+    for metric, values in evaluation_metrics.items():
+        file.write(f"{metric}:\n")
+        values.to_csv(file)
+        file.write("\n")
+
+
+# Menyimpan rekap kesimpulan dalam file TXT
+rekap_path = os.path.join(script_folder, "6.Rekap_kesimpulan.txt")
+with open(rekap_path, 'w') as file:
+    file.write("Evaluasi Metrik dan Kesimpulan:\n")
+    for metric, values in conclusion.items():
+        file.write(f"{metric}:\n")
+        file.write(f"{pd.DataFrame(values)}\n\n")
+
+
+########################################################################################################################
+########################################################################################################################
+#😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡
+
+# Langkah 5: Menghapus nilai negatif dari data bulanan kecuali kolom 'Bulan_Tahun'
+file_path = "1.bulanan.csv"  # Ubah path sesuai kebutuhan
+data_bulanan = pd.read_csv(file_path)
+
+data_bulanan_koreksi = data_bulanan.copy()  # Salin data agar tidak mengubah data asli
+
+# Mengganti nilai negatif dengan NaN
+data_bulanan_koreksi[data_bulanan_koreksi.select_dtypes(include='number') < 0] = np.nan
+
+# Menyimpan data bulanan yang telah dimodifikasi ke dalam file CSV baru
+output_koreksi_csv_path = "7.Bulanan_Koreksi.csv"  # Ubah path sesuai kebutuhan
+data_bulanan_koreksi.to_csv(output_koreksi_csv_path, index=False)
+print("Data Bulanan yang telah dimodifikasi telah disimpan dalam file 7.Bulanan_Koreksi.csv")
+
+########################################################################################################################
+########################################################################################################################
+#😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡
+
+
+# Langkah 6: Plot grafik sebelum bias koreksi
+data_koreksi = pd.read_csv(output_koreksi_csv_path)
+
+# Gabungkan beberapa kolom untuk plot
+columns_to_plot = [col for col in data_koreksi.columns if col != 'Bulan_Tahun']
+
+# Plot distribusi gamma dan CDF dalam satu gambar sebelum bias koreksi
+plt.figure(figsize=(12, 6))
+
+# Plot distribusi gamma dan histogram
+for column in columns_to_plot:
+    gamma_params = stats.gamma.fit(data_koreksi[column].dropna())  # Estimasi parameter distribusi gamma
+    x = np.linspace(0, data_koreksi[column].max(), 100)
+    pdf = stats.gamma.pdf(x, *gamma_params)
+    plt.plot(x, pdf, linestyle='-', linewidth=2, label=f'Gamma PDF for {column}')
+
+    # Plot histogram data
+    plt.hist(data_koreksi[column].dropna(), bins=30, density=True, alpha=0.5, label=f'Data for {column}')
+
+plt.title('Gamma Distribution and Histogram for Multiple Columns (Before Bias Correction)')
+plt.xlabel('Values')
+plt.ylabel('Density')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Plot CDF dalam satu gambar sebelum bias koreksi
+plt.figure(figsize=(12, 6))
+
+for column in columns_to_plot:
+    sorted_data = np.sort(data_koreksi[column].dropna())
+    cdf = np.arange(len(sorted_data)) / float(len(sorted_data))
+    plt.plot(sorted_data, cdf, linestyle='-', linewidth=2, label=f'CDF for {column}')
+
+plt.title('Cumulative Distribution Function (CDF) for Multiple Columns (Before Bias Correction)')
+plt.xlabel('Values')
+plt.ylabel('CDF')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+########################################################################################################################
+########################################################################################################################
+#😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡
+
+
+# Langkah 7: Bias koreksi menggunakan Quantile Mapping
+ref_dataset = data_koreksi['Data_Ground']  # Observation data
+model_present = data_koreksi.drop(columns=['Bulan_Tahun', 'Data_Ground'])  # Model simulations during the same period
+
+# Loop through each column in the model simulations
+for column in model_present.columns:
+    # Perform quantile mapping
+    ref_quantiles = ref_dataset.quantile(np.linspace(0, 1, len(ref_dataset)))
+    model_quantiles = model_present[column].quantile(np.linspace(0, 1, len(model_present[column])))
+    
+    # Perform quantile mapping
+    model_present[column] = np.interp(model_present[column], model_quantiles, ref_quantiles)
+
+# Gabungkan kembali kolom Data_Ground dan kolom lainnya
+data_koreksi_bias = pd.concat([data_koreksi['Bulan_Tahun'], ref_dataset, model_present], axis=1)
+
+# Plot distribusi gamma setelah bias koreksi
+plt.figure(figsize=(12, 6))
+
+for column in data_koreksi_bias.columns:
+    if column == 'Bulan_Tahun':
+        continue  # Skip plotting Bulan_Tahun column
+    
+    # Plot distribusi gamma
+    gamma_params = stats.gamma.fit(data_koreksi_bias[column].dropna())  # Estimasi parameter distribusi gamma
+    x = np.linspace(0, data_koreksi_bias[column].max(), 100)
+    pdf = stats.gamma.pdf(x, *gamma_params)
+    plt.plot(x, pdf, label=f'{column} - Gamma PDF')
+
+# Plot legend dan tambahan informasi
+plt.title('Gamma Distribution for Each Column (After Bias Correction)')
+plt.xlabel('Values')
+plt.ylabel('Density')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Simpan data hasil koreksi dalam format CSV
+output_bias_corrected_csv_path = "8.Bias_Corrected_Data.csv"
+data_koreksi_bias.to_csv(output_bias_corrected_csv_path, index=False)
+print(f"Data hasil bias correction telah disimpan dalam file {output_bias_corrected_csv_path}")
+
+
+data_koreksia = pd.read_csv(output_bias_corrected_csv_path)
+
+# Gabungkan beberapa kolom untuk plot
+columns_to_plot = [col for col in data_koreksia.columns if col != 'Bulan_Tahun']
+
+# Plot distribusi gamma dan CDF dalam satu gambar sebelum bias koreksi
+plt.figure(figsize=(12, 6))
+
+# Plot distribusi gamma dan histogram
+for column in columns_to_plot:
+    gamma_params = stats.gamma.fit(data_koreksia[column].dropna())  # Estimasi parameter distribusi gamma
+    x = np.linspace(0, data_koreksia[column].max(), 100)
+    pdf = stats.gamma.pdf(x, *gamma_params)
+    plt.plot(x, pdf, linestyle='-', linewidth=2, label=f'Gamma PDF for {column}')
+
+    # Plot histogram data
+    plt.hist(data_koreksia[column].dropna(), bins=30, density=True, alpha=0.5, label=f'Data for {column}')
+
+plt.title('Gamma Distribution and Histogram for Multiple Columns (After Bias Correction)')
+plt.xlabel('Values')
+plt.ylabel('Density')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Plot CDF dalam satu gambar sebelum bias koreksi
+plt.figure(figsize=(12, 6))
+
+for column in columns_to_plot:
+    sorted_data = np.sort(data_koreksia[column].dropna())
+    cdf = np.arange(len(sorted_data)) / float(len(sorted_data))
+    plt.plot(sorted_data, cdf, linestyle='-', linewidth=2, label=f'CDF for {column}')
+
+plt.title('Cumulative Distribution Function (CDF) for Multiple Columns (After Bias Correction)')
+plt.xlabel('Values')
+plt.ylabel('CDF')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+
+# Assuming `data_koreksi` and `data_koreksi_bias` DataFrames are already defined
+
+# Create empty DataFrames to store the paired data
+paired_data_before = pd.DataFrame()
+paired_data_after = pd.DataFrame()
+
+# Q-Q Plot before bias correction
+plt.figure(figsize=(12, 6))
+
+for column in data_koreksi.columns:
+    if column == 'Bulan_Tahun' or column == 'Data_Ground':
+        continue  # Skip plotting Bulan_Tahun and Data_Ground columns
+
+    # Remove NaN values from both datasets
+    paired_data = data_koreksi[['Data_Ground', column]].dropna()
+    sorted_ref_data = np.sort(paired_data['Data_Ground'])
+    sorted_model_data = np.sort(paired_data[column])
+
+    # Ensure lengths match
+    min_length = min(len(sorted_ref_data), len(sorted_model_data))
+    sorted_ref_data = sorted_ref_data[:min_length]
+    sorted_model_data = sorted_model_data[:min_length]
+
+    # Add to the paired data DataFrame
+    paired_data_before = pd.concat([paired_data_before, pd.DataFrame({'Ground_Data': sorted_ref_data, column: sorted_model_data})], axis=1)
+
+    plt.plot(sorted_ref_data, sorted_model_data, 'o', label=f'{column} (Before Bias Correction)')
+
+# Add diagonal reference line
+plt.plot(sorted_ref_data, sorted_ref_data, color='black', linestyle='--', label='Diagonal')
+
+plt.title('Q-Q Plot (Before Bias Correction)')
+plt.xlabel('Ground_Data')
+plt.ylabel('Satelite_data')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Print the paired data before bias correction
+print("Paired Data Before Bias Correction:")
+print(paired_data_before)
+
+# Save paired data before bias correction to CSV
+paired_data_before.to_csv('Paired_Data_Before_Bias_Correction.csv', index=False)
+print("Paired data before bias correction saved to 'Paired_Data_Before_Bias_Correction.csv'")
+
+# Q-Q Plot after bias correction
+plt.figure(figsize=(12, 6))
+
+for column in data_koreksi_bias.columns:
+    if column == 'Bulan_Tahun' or column == 'Data_Ground':
+        continue  # Skip plotting Bulan_Tahun and Data_Ground columns
+
+    # Remove NaN values from both datasets
+    paired_data = data_koreksi_bias[['Data_Ground', column]].dropna()
+    sorted_ref_data = np.sort(paired_data['Data_Ground'])
+    sorted_model_data = np.sort(paired_data[column])
+
+    # Ensure lengths match
+    min_length = min(len(sorted_ref_data), len(sorted_model_data))
+    sorted_ref_data = sorted_ref_data[:min_length]
+    sorted_model_data = sorted_model_data[:min_length]
+
+    # Add to the paired data DataFrame
+    paired_data_after = pd.concat([paired_data_after, pd.DataFrame({'Ground_Data': sorted_ref_data, column: sorted_model_data})], axis=1)
+
+    plt.plot(sorted_ref_data, sorted_model_data, 'o', label=f'{column} (After Bias Correction)')
+
+# Add diagonal reference line
+plt.plot(sorted_ref_data, sorted_ref_data, color='black', linestyle='--', label='Diagonal')
+
+plt.title('Q-Q Plot (After Bias Correction)')
+plt.xlabel('Ground_Data')
+plt.ylabel('Satelite_Data')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Print the paired data after bias correction
+print("Paired Data After Bias Correction:")
+print(paired_data_after)
+
+# Save paired data after bias correction to CSV
+paired_data_after.to_csv('Paired_Data_After_Bias_Correction.csv', index=False)
+print("Paired data after bias correction saved to 'Paired_Data_After_Bias_Correction.csv'")
+
+import pandas as pd
+import numpy as np
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from scipy.stats import pearsonr
+
+# Function to calculate metrics
+def calculate_metrics(observed, simulated):
+    # Ensure no NaN values
+    mask = ~np.isnan(observed) & ~np.isnan(simulated)
+    observed = observed[mask]
+    simulated = simulated[mask]
+    
+    # RMSE
+    rmse = np.sqrt(mean_squared_error(observed, simulated))
+    
+    # RSR
+    rsr = rmse / np.std(observed)
+    
+    # NSE
+    nse = 1 - (sum((simulated - observed) ** 2) / sum((observed - np.mean(observed)) ** 2))
+    
+    # PBIAS
+    pbias = 100 * sum(simulated - observed) / sum(observed)
+    
+    # Correlation
+    correlation, _ = pearsonr(observed, simulated)
+    
+    # R²
+    r_squared = correlation ** 2
+    
+    # KGE
+    mean_observed = np.mean(observed)
+    mean_simulated = np.mean(simulated)
+    std_observed = np.std(observed)
+    std_simulated = np.std(simulated)
+    r = correlation
+    beta = mean_simulated / mean_observed
+    gamma = (std_simulated / mean_simulated) / (std_observed / mean_observed)
+    kge = 1 - np.sqrt((r - 1) ** 2 + (beta - 1) ** 2 + (gamma - 1) ** 2)
+    
+    # MAE
+    mae = mean_absolute_error(observed, simulated)
+    
+    return rmse, rsr, nse, pbias, correlation, r_squared, kge, mae
+
+# Calculate metrics for before and after bias correction
+metrics_before = {}
+metrics_after = {}
+
+for column in paired_data_before.columns:
+    if column == 'Ground_Data':
+        continue  # Skip the ground data column
+    
+    # Before bias correction
+    observed = paired_data_before['Ground_Data']
+    simulated = paired_data_before[column]
+    metrics_before[column] = calculate_metrics(observed, simulated)
+    
+    # After bias correction
+    observed = paired_data_after['Ground_Data']
+    simulated = paired_data_after[column]
+    metrics_after[column] = calculate_metrics(observed, simulated)
+
+# Convert metrics to DataFrame for better readability
+metrics_names = ['RMSE', 'RSR', 'NSE', 'PBIAS', 'Correlation', 'R²', 'KGE', 'MAE']
+
+metrics_before_df = pd.DataFrame.from_dict(metrics_before, orient='index', columns=metrics_names)
+metrics_after_df = pd.DataFrame.from_dict(metrics_after, orient='index', columns=metrics_names)
+
+print("Metrics Before Bias Correction:")
+print(metrics_before_df)
+
+print("\nMetrics After Bias Correction:")
+print(metrics_after_df)
+
+# Save metrics to CSV
+metrics_before_df.to_csv('Metrics_Before_Bias_Correction.csv')
+metrics_after_df.to_csv('Metrics_After_Bias_Correction.csv')
+
+print("Metrics before and after bias correction saved to 'Metrics_Before_Bias_Correction.csv' and 'Metrics_After_Bias_Correction.csv'")
+
+
+########################################################################################################################
+########################################################################################################################
+#😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+from sklearn.metrics import mean_squared_error, r2_score
+
+# Fungsi KGE (Kling-Gupta Efficiency)
+def kge_score(ground_truth, simulation):
+    kge_val = 1 - (math.sqrt((np.square(np.corrcoef(ground_truth, simulation)[0,1] - 1)**2) + 
+                              (np.square(np.std(simulation, ddof=1) / np.std(ground_truth, ddof=1) - 1)**2) + 
+                              (np.square(np.mean(simulation) / np.mean(ground_truth) - 1)**2)))
+    return kge_val
+
+# Langkah 8: Memuat data hasil bias koreksi dari CSV
+file_path = "8.Bias_Corrected_Data.csv"
+data_koreksi_bias = pd.read_csv(file_path)
+
+# Langkah 9: Evaluasi Metrik dan Kesimpulan pada data yang telah dikoreksi biasnya
+
+# Menyaring data bulanan yang tidak mengandung nilai NaN dan menghilangkan kolom 'Bulan_Tahun'
+data_koreksi_bias_clean = data_koreksi_bias.dropna().drop(columns=['Bulan_Tahun'])
+
+# Metrik
+evaluation_metrics_bias = {}
+
+# Korelasi
+correlation_bias = data_koreksi_bias_clean.corrwith(data_koreksi_bias_clean.iloc[:, 0])
+evaluation_metrics_bias['Correlation'] = pd.DataFrame(correlation_bias, columns=['Correlation'])
+
+print("Correlation (After Bias Correction):")
+print(evaluation_metrics_bias['Correlation'])
+
+# RMSE (Root Mean Square Error)
+rmse_bias = {}
+for column in data_koreksi_bias_clean.columns:
+    if np.issubdtype(data_koreksi_bias_clean[column].dtype, np.number):
+        rmse_bias[column] = math.sqrt(mean_squared_error(data_koreksi_bias_clean.iloc[:, 0], data_koreksi_bias_clean[column]))
+evaluation_metrics_bias['RMSE'] = pd.DataFrame(rmse_bias, index=['RMSE'])
+
+# RSR (Ratio of the Root Mean Square Error to the Standard Deviation)
+rsr_bias = {}
+for column in data_koreksi_bias_clean.columns:
+    if np.issubdtype(data_koreksi_bias_clean[column].dtype, np.number):
+        rmse_value = math.sqrt(mean_squared_error(data_koreksi_bias_clean.iloc[:, 0], data_koreksi_bias_clean[column]))
+        rsr_value = rmse_value / data_koreksi_bias_clean.iloc[:, 0].std()
+        rsr_bias[column] = rsr_value
+evaluation_metrics_bias['RSR'] = pd.DataFrame(rsr_bias, index=['RSR'])
+
+# NSE (Nash-Sutcliffe Efficiency)
+nse_bias = {}
+for column in data_koreksi_bias_clean.columns:
+    if np.issubdtype(data_koreksi_bias_clean[column].dtype, np.number):
+        # Filter out NaN and negative values
+        valid_values_bias = data_koreksi_bias_clean[column][(data_koreksi_bias_clean[column] >= 0) & (~np.isnan(data_koreksi_bias_clean[column]))]
+        if len(valid_values_bias) > 0:
+            # Check if denominator is not zero
+            if np.sum((data_koreksi_bias_clean.iloc[:, 0] - np.mean(data_koreksi_bias_clean.iloc[:, 0]))**2) != 0:
+                nse_value_bias = 1 - (np.sum((valid_values_bias - data_koreksi_bias_clean.iloc[:, 0])**2) / np.sum((data_koreksi_bias_clean.iloc[:, 0] - np.mean(data_koreksi_bias_clean.iloc[:, 0]))**2))
+                nse_bias[column] = nse_value_bias
+            else:
+                nse_bias[column] = np.nan  # Assign NaN if denominator is zero
+        else:
+            nse_bias[column] = np.nan  # Assign NaN if all values are invalid
+evaluation_metrics_bias['NSE'] = pd.DataFrame(nse_bias, index=['NSE'])
+
+# Print hasil NSE
+print("NSE (After Bias Correction):")
+print(evaluation_metrics_bias['NSE'])
+
+# PBIAS (Percent Bias)
+pbias_bias = {}
+for column in data_koreksi_bias_clean.columns:
+    if np.issubdtype(data_koreksi_bias_clean[column].dtype, np.number):
+        pbias_value_bias = ((data_koreksi_bias_clean[column] - data_koreksi_bias_clean.iloc[:, 0]).sum() / 
+                       data_koreksi_bias_clean.iloc[:, 0].sum()) * 100
+        pbias_bias[column] = pbias_value_bias
+evaluation_metrics_bias['PBIAS'] = pd.DataFrame(pbias_bias, index=['PBIAS'])
+
+# R^2 (Coefficient of Determination)
+r2_bias = {}
+for column in data_koreksi_bias_clean.columns:
+    if np.issubdtype(data_koreksi_bias_clean[column].dtype, np.number):
+        r2_value_bias = r2_score(data_koreksi_bias_clean.iloc[:, 0], data_koreksi_bias_clean[column])
+        r2_bias[column] = r2_value_bias
+evaluation_metrics_bias['R^2'] = pd.DataFrame(r2_bias, index=['R^2'])
+
+# KGE (Kling-Gupta Efficiency)
+kge_bias = {}
+for column in data_koreksi_bias_clean.columns:
+    if np.issubdtype(data_koreksi_bias_clean[column].dtype, np.number):
+        kge_value_bias = kge_score(data_koreksi_bias_clean.iloc[:, 0], data_koreksi_bias_clean[column])
+        kge_bias[column] = kge_value_bias
+evaluation_metrics_bias['KGE'] = pd.DataFrame(kge_bias, index=['KGE'])
+
+# MAE (Mean Absolute Error)
+mae_bias = {}
+for column in data_koreksi_bias_clean.columns:
+    if np.issubdtype(data_koreksi_bias_clean[column].dtype, np.number):
+        mae_value_bias = mean_absolute_error(data_koreksi_bias_clean.iloc[:, 0], data_koreksi_bias_clean[column])
+        mae_bias[column] = mae_value_bias
+evaluation_metrics_bias['MAE'] = pd.DataFrame(mae_bias, index=['MAE'])
+
+# Kesimpulan
+conclusion_bias = {}
+for metric, values in evaluation_metrics_bias.items():
+    conclusion_bias[metric] = {}
+    for column, value in values.items():
+        if metric in ['RSR', 'NSE', 'PBIAS', 'R^2', 'KGE', 'MAE']:
+            if metric == 'RSR':
+                conclusion_bias[metric][column] = value.apply(lambda x: ('Very Good', x) if 0 <= x <= 0.5 else (('Good', x) if 0.5 < x <= 0.6 else (('Satisfactory', x) if 0.6 < x <= 0.7 else ('Unsatisfactory', x))))
+            elif metric == 'NSE':
+                conclusion_bias[metric][column] = value.apply(lambda x: ('Very Good', x) if 0.75 < x <= 1 else (('Good', x) if 0.65 < x <= 0.75 else (('Satisfactory', x) if 0.5 < x <= 0.65 else ('Unsatisfactory', x))))
+            elif metric == 'PBIAS':
+                conclusion_bias[metric][column] = value.apply(lambda x: ('Very Good', x) if x < 10 else (('Good', x) if 10 <= x <= 15 else (('Satisfactory', x) if 15 <= x <= 25 else ('Unsatisfactory', x))))
+            elif metric == 'R^2':
+                conclusion_bias[metric][column] = value.apply(lambda x: ('Very Good', x) if x > 0.8 else (('Good', x) if 0.7 <= x <= 0.8 else (('Satisfactory', x) if 0.5 <= x <= 0.7 else ('Unsatisfactory', x))))
+            elif metric in ['KGE', 'MAE']:
+                conclusion_bias[metric][column] = value.apply(lambda x: ('Very Good', x) if x < 10 else (('Good', x) if 10 <= x <= 20 else (('Satisfactory', x) if 20 <= x <= 30 else ('Unsatisfactory', x))))
+        else:
+            conclusion_bias[metric][column] = value
+
+# Mendapatkan path folder script phy
+script_folder = os.path.dirname(os.path.abspath(__file__))
+
+# Menyimpan metrik evaluasi pada data yang telah dikoreksi biasnya dalam file CSV
+evaluation_metrics_bias_path = os.path.join(script_folder, "9.Evaluasi_metrik_bias_corrected.csv")
+with open(evaluation_metrics_bias_path, 'w') as file:
+    for metric, values in evaluation_metrics_bias.items():
+        file.write(f"{metric}:\n")
+        values.to_csv(file)
+        file.write("\n")
+
+# Print kesimpulan dalam bentuk tabel
+print("Evaluasi Metrik dan Nilai:")
+print("----------------------------")
+for metric, values in evaluation_metrics.items():
+    for column, value in values.items():
+        if metric != 'Correlation' or column != 'Data_Ground':
+            print(f"| {metric.ljust(15)} | {value.iloc[0]:.2f} |")
+print("----------------------------")
+
+# Print kesimpulan dalam bentuk tabel
+print("Evaluasi Metrik dan Nilai (Before Bias Correction):")
+print("----------------------------")
+for metric, values in evaluation_metrics_bias.items():
+    for column, value in values.items():
+        if metric != 'Correlation' or column != 'Data_Ground':
+            print(f"| {metric.ljust(15)} | {value.iloc[0]:.2f} |")
+print("----------------------------")
+
+# Menyimpan rekap kesimpulan pada data yang telah dikoreksi biasnya dalam file TXT
+rekap_bias_path = os.path.join(script_folder, "10.Rekap_kesimpulan_bias_corrected.txt")
+with open(rekap_bias_path, 'w') as file:
+    file.write("Evaluasi Metrik dan Kesimpulan (After Bias Correction):\n")
+    for metric, values in conclusion_bias.items():
+        file.write(f"{metric}:\n")
+        file.write(f"{pd.DataFrame(values)}\n\n")
+
+
+########################################################################################################################
+########################################################################################################################
+#😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡
+# Langkah 3: Membuat plot
+
+
+plt.figure(figsize=(10, 6))
+
+# Memplot data untuk setiap kolom kecuali 'Bulan_Tahun' (kolom terakhir)
+for column in data_bulanan.columns[:-1]:
+    # Jika nilai kolom tidak negatif, maka masukkan ke plot
+    data_plot = data_bulanan[column].where(data_bulanan[column] >= 0)
+    if data_plot.notnull().any():
+        plt.plot(data_bulanan['Bulan_Tahun'], data_plot, label=column, marker='o', linestyle='-')
+
+plt.title('Monthly Rainfall')
+plt.xlabel('Period')
+plt.ylabel('Rainfall (mm/month)')
+plt.legend()
+# Mengatur interval label sumbu X agar lebih jelas
+num_ticks = 15  # Jumlah maksimum tick yang ingin ditampilkan
+tick_positions = range(0, len(data_bulanan['Bulan_Tahun']), len(data_bulanan['Bulan_Tahun']) // num_ticks)
+plt.xticks(tick_positions, data_bulanan['Bulan_Tahun'].iloc[tick_positions], rotation=90)
+
+plt.grid(True)
+plt.tight_layout()
+
+# Menyimpan plot ke dalam file
+output_plot_path = r"C:\Users\Yuangga\.spyder-py3\Bias Correction\BiasV2\3.grafik_hujan.png"
+plt.savefig(output_plot_path)
+
+# Menampilkan plot
+plt.show()
+########################################################################################################################
+########################################################################################################################
+#😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡😡
+# Langkah 11: Membuat plot dari data bulanan yang telah mengalami bias koreksi
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Mengambil data dari file CSV yang telah mengalami bias koreksi
+file_path_bias_corrected = "8.Bias_Corrected_Data.csv"
+data_bias_corrected = pd.read_csv(file_path_bias_corrected)
+
+plt.figure(figsize=(10, 6))
+
+# Memplot data untuk setiap kolom kecuali 'Bulan_Tahun' (kolom pertama)
+for column in data_bias_corrected.columns[1:]:  # Mulai dari indeks kolom kedua karena kolom pertama adalah 'Bulan_Tahun'
+    # Memplot semua data, termasuk NaN
+    plt.plot(data_bias_corrected['Bulan_Tahun'], data_bias_corrected[column], label=column, marker='o', linestyle='-')
+
+plt.title('Monthly Rainfall (After Bias Correction)')
+plt.xlabel('Period')
+plt.ylabel('Rainfall (mm/month)')
+plt.legend()
+# Mengatur interval label sumbu X agar lebih jelas
+num_ticks = 15  # Jumlah maksimum tick yang ingin ditampilkan
+tick_positions = range(0, len(data_bulanan['Bulan_Tahun']), len(data_bulanan['Bulan_Tahun']) // num_ticks)
+plt.xticks(tick_positions, data_bulanan['Bulan_Tahun'].iloc[tick_positions], rotation=90)
+
+
+
+plt.grid(True)
+plt.tight_layout()
+
+# Menyimpan plot ke dalam file
+output_plot_path_bias_corrected = "11.grafik_hujan_after_bias_correction.png"
+plt.savefig(output_plot_path_bias_corrected)
+
+# Menampilkan plot
+plt.show()
+
 
