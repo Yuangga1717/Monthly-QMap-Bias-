@@ -1,0 +1,34 @@
+Evaluasi Metrik dan Kesimpulan (After Bias Correction):
+Correlation:
+             Correlation
+Data_Ground     1.000000
+Satelite        0.644264
+
+RMSE:
+      Data_Ground   Satelite
+RMSE          0.0  77.115936
+
+RSR:
+          Data_Ground                              Satelite
+RSR  (Very Good, 0.0)  (Unsatisfactory, 0.8307709592605887)
+
+NSE:
+          Data_Ground                             Satelite
+NSE  (Very Good, 1.0)  (Unsatisfactory, 0.295134924169438)
+
+PBIAS:
+            Data_Ground                         Satelite
+PBIAS  (Very Good, 0.0)  (Very Good, 1.4703949541996553)
+
+R^2:
+          Data_Ground                             Satelite
+R^2  (Very Good, 1.0)  (Unsatisfactory, 0.295134924169438)
+
+KGE:
+          Data_Ground                         Satelite
+KGE  (Very Good, 1.0)  (Very Good, 0.8734512978886696)
+
+MAE:
+          Data_Ground                             Satelite
+MAE  (Very Good, 0.0)  (Unsatisfactory, 57.85478111248603)
+
