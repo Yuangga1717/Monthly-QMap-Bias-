@@ -1,5 +1,16 @@
-There are several output that we can make based on this code. I am not print all the result, but you can add.
+There are several output that we can make based on this code. I am not print all the result, but you can add inside the code for improvement if you want.
 Some output result need to be confirm, so I will explain the confirmation of the data
-## 4.Evaluasi_metrik
+## 4.Evaluasi_metrik.csv
 This code conduct several parameter to see the improvement of the data before and after bias corrected.
-s
+first of all I print this section because it is strongly recommended if we want to do bias corrected, we need to check the correlation between GCM and our ground first.
+so correlation are inside this code, check on this file the value of correlation before you use to confirm.
+other parameters is RMSE that usually side by side with correlation.
+the other like NSE, PBIAS, RSR, R^2 etc
+## 6.Rekap_kesimpulan.txt
+this file is a compilation of matrix but I save it as a txt file
+## 7.Bulanan_Koreksi.csv
+this file for next processing, I want to comparing the result before bias corrected and after bias corrected, so I need to keep original file and use this file for the next process
+## 8.Bias_Corrected_Data.csv
+this is the final output, raw data after bias corrected, if you use the result of bias corrected data for next process, take the data from this file
+## all the plot inside the file and you can copy directly from the plot.
+there are 3 kind of plot: plot raw montly data, QQ plot for bias correction, gamma distribution, and CDF Curve plot
